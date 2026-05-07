@@ -115,6 +115,13 @@ def main():
         help="Regex pattern to match instance Name tags for targeted restore.",
     )
     parser.add_argument(
+        "-d",
+        "--divisor",
+        type=int,
+        default=1,
+        help="Divide the total instances into this many batches to avoid AWS rate limits.",
+    )
+    parser.add_argument(
         "cluster",
         help="""
             the name CLUSTER of the cluster in question. This can be found by
@@ -165,76 +172,88 @@ def main():
     if args.restore:
         snapshot_name = "default" if args.name is None else args.name
 
-        # Handle targeted restore
+        instances_to_restore = []
+
+        # Identify target instances
         if args.target:
             try:
-                # Validate regex pattern
-                re.compile(args.target)
-
-                # Check if any instances match the pattern
-                instances = cluster.get_instances()
-                filtered_instances = cluster._filter_instances_by_name_regex(instances, args.target)
-
-                if len(filtered_instances) == 0:
-                    print(
-                        f"No instances found matching pattern '{args.target}'. Operation aborted."
-                    )
-                else:
-                    print(
-                        f"Found {len(filtered_instances)} instances matching pattern '{args.target}':"
-                    )
-                    for instance in filtered_instances:
-                        name_tag = "Unknown"
-                        if instance.tags:
-                            for tag in instance.tags:
-                                if tag["Key"] == "Name":
-                                    name_tag = tag["Value"]
-                                    break
-                        print(f"  - {instance.id} ({name_tag})")
-
-                    confirm = input(
-                        f"Restore backup '{snapshot_name}' for these {len(filtered_instances)} instances? [no] "
-                    )
-                    if confirm == "yes":
-                        print("Restoring targeted instances.")
-                        # Stop targeted instances
-                        cluster.stop_instances_targeted(args.target)
-                        # Detach and delete volumes from targeted instances
-                        cluster.detach_volumes_targeted(args.target)
-                        cluster.delete_volumes_targeted(args.target)
-                        # Create new volumes from snapshots and attach them
-                        cluster.create_volumes_targeted(snapshot_name, args.target)
-                        cluster.attach_volumes_targeted(snapshot_name, args.target)
-                        # Start targeted instances
-                        # cluster.start_instances_targeted(args.target)
-                        print("Operation completed successfully!")
-                    else:
-                        print("Operation aborted.")
+                re.compile(args.target)  # Validate regex
+                all_instances = cluster.get_instances()
+                instances_to_restore = cluster._filter_instances_by_name_regex(
+                    all_instances, args.target
+                )
             except re.error as e:
                 print(f"Invalid regex pattern '{args.target}': {e}")
-                print("Operation aborted.")
+                return
         else:
-            # Full cluster restore
-            confirm = input(f"Restore backup of {args.cluster} named '{snapshot_name}'? [no] ")
-            if confirm == "yes":
-                print("Restoring cluster.")
-                instances = cluster.get_instances()
-                if len(instances) == 0:
-                    print("No instances found. Operation aborted.")
-                else:
-                    # Stop cluster (not clean)
-                    cluster.stop_instances()
-                    # Detach and delete current volumes
-                    cluster.detach_volumes()
-                    cluster.delete_volumes()
-                    # Create new volumes from snapshots and attach them
-                    cluster.create_volumes(snapshot_name)
-                    cluster.attach_volumes(snapshot_name)
-                    # Start cluster
-                    # cluster.start_instances()
-                    print("Operation completed successfully!")
+            # For a full restore, we just get everyone
+            instances_to_restore = cluster.get_instances()
+
+        if not instances_to_restore:
+            if args.target:
+                print(f"No instances found matching pattern '{args.target}'. Operation aborted.")
             else:
-                print("Operation aborted.")
+                print("No instances found to restore. Operation aborted.")
+            return
+
+        # Setup Batching
+        total_count = len(instances_to_restore)
+        num_batches = max(1, min(args.divisor, total_count))
+        batch_size = (total_count + num_batches - 1) // num_batches
+
+        print("\n--- Restore Plan ---")
+        print(f"Target Cluster: {args.cluster}")
+        print(f"Snapshot Name:  {snapshot_name}")
+        print(f"Total Instances: {total_count}")
+        print(f"Batching:       {num_batches} batches of ~{batch_size} instances")
+
+        confirm = input("\nProceed with restore? [no] ")
+        if confirm.lower() == "yes":
+            # Stop the instances involved
+            print("Stopping instances...")
+            cluster.stop_instances()  # It's safer to stop the whole cluster set once
+
+            # Process the Batches
+            for i in range(0, total_count, batch_size):
+                batch = instances_to_restore[i : i + batch_size]
+
+                # --- NEW LOGIC START ---
+                # Get the "Name" tag value for each instance in the batch
+                batch_names = []
+                for ins in batch:
+                    name_value = next(
+                        (tag["Value"] for tag in ins.tags if tag["Key"] == "Name"), None
+                    )
+                    if name_value:
+                        batch_names.append(name_value)
+
+                # Join the Names into a regex pattern
+                batch_pattern = "|".join(batch_names)
+                # --- NEW LOGIC END ---
+
+                print(
+                    f"\n[Batch {i // batch_size + 1}/{num_batches}] Processing {len(batch)} instances..."
+                )
+                print(f"Pattern: {batch_pattern}")  # Debug to see the names
+
+                cluster.detach_volumes_targeted(batch_pattern)
+                cluster.delete_volumes_targeted(batch_pattern)
+                cluster.create_volumes_targeted(snapshot_name, batch_pattern)
+                cluster.attach_volumes_targeted(snapshot_name, batch_pattern)
+
+                # Wait for the AWS hydration rate to settle before the next batch
+                if i + batch_size < total_count:
+                    print("Waiting 60s for AWS throughput limits to clear...")
+                    import time
+
+                    time.sleep(60)
+
+            print("\nRestore operation completed successfully!")
+            return
+
+        else:
+            print("Operation aborted.")
+            return
 
     if args.list:
         if args.name is None:

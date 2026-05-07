@@ -15,9 +15,9 @@ class TestSnapshotManagerCLI:
     """
 
     @pytest.fixture
-    def cluster3(self):
+    def cluster3(self, aws_profile):
         """ClusterSet for test3 cluster (2 instances)"""
-        return ClusterSet("test3")
+        return ClusterSet("test3", profile=aws_profile)
 
     def run_snapshot_manager(self, args):
         """Helper to run snapshot_manager with given arguments"""

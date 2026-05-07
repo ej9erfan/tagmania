@@ -12,19 +12,19 @@ class TestCrossCluster:
     """
 
     @pytest.fixture
-    def cluster1(self):
+    def cluster1(self, aws_profile):
         """ClusterSet for test1 cluster (1 instance)"""
-        return ClusterSet("test1")
+        return ClusterSet("test1", profile=aws_profile)
 
     @pytest.fixture
-    def cluster2(self):
+    def cluster2(self, aws_profile):
         """ClusterSet for test2 cluster (2 instances)"""
-        return ClusterSet("test2")
+        return ClusterSet("test2", profile=aws_profile)
 
     @pytest.fixture
-    def cluster3(self):
+    def cluster3(self, aws_profile):
         """ClusterSet for test3 cluster (2 instances)"""
-        return ClusterSet("test3")
+        return ClusterSet("test3", profile=aws_profile)
 
     @pytest.mark.slow
     def test_cross_cluster_isolation(self, cluster1, cluster2):

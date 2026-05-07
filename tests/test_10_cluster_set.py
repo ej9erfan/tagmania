@@ -12,9 +12,9 @@ class TestBasicClusterOperations:
     """
 
     @pytest.fixture
-    def cluster(self):
+    def cluster(self, aws_profile):
         """ClusterSet for test1 cluster (1 instance)"""
-        return ClusterSet("test1")
+        return ClusterSet("test1", profile=aws_profile)
 
     def test_clusterset_stop(self, cluster):
         """

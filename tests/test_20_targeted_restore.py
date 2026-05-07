@@ -14,9 +14,9 @@ class TestTargetedRestore:
     """
 
     @pytest.fixture
-    def cluster2(self):
+    def cluster2(self, aws_profile):
         """ClusterSet for test2 cluster (2 instances)"""
-        return ClusterSet("test2")
+        return ClusterSet("test2", profile=aws_profile)
 
     def test_filter_instances_by_name_regex_single_match(self, cluster2):
         """Test filtering instances with regex that matches single instance"""

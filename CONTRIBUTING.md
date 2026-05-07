@@ -125,7 +125,7 @@ git checkout -b docs/update-api-reference
 poetry run pytest tests/
 
 # Run specific test file
-poetry run pytest tests/test_snapshot_manager.py
+poetry run pytest tests/test_05_snapshot_manager_unit.py
 
 # Run with coverage report
 poetry run pytest tests/ --cov=tagmania

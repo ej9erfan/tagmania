@@ -128,19 +128,24 @@ class TestSnapshotManagerRestore:
     @patch("tagmania.snapshot_manager.ClusterSet")
     @patch("builtins.input", return_value="yes")
     def test_full_restore(self, mock_input, mock_cs_class, capsys):
+
         mock_cs = MagicMock()
-        mock_cs.get_instances.return_value = [make_instance("web-01")]
+        inst = make_instance("web-01")
+        mock_cs.get_instances.return_value = [inst]
         mock_cs_class.return_value = mock_cs
+
         with patch("sys.argv", ["snap", "--restore", "--name", "daily", "test1"]):
             from tagmania.snapshot_manager import main
 
             main()
         mock_cs.stop_instances.assert_called_once()
-        mock_cs.detach_volumes.assert_called_once()
-        mock_cs.delete_volumes.assert_called_once()
-        mock_cs.create_volumes.assert_called_once_with("daily")
-        mock_cs.attach_volumes.assert_called_once_with("daily")
-        assert "Operation completed" in capsys.readouterr().out
+        mock_cs.stop_instances.assert_called_once()
+        # Batch pattern is built from Name tag values, not instance IDs
+        mock_cs.detach_volumes_targeted.assert_called_with("web-01")
+        mock_cs.delete_volumes_targeted.assert_called_with("web-01")
+        mock_cs.create_volumes_targeted.assert_called_with("daily", "web-01")
+        mock_cs.attach_volumes_targeted.assert_called_with("daily", "web-01")
+        assert "completed successfully" in capsys.readouterr().out
 
     @patch("tagmania.snapshot_manager.ClusterSet")
     @patch("builtins.input", return_value="no")
@@ -181,14 +186,14 @@ class TestSnapshotManagerRestore:
             from tagmania.snapshot_manager import main
 
             main()
-        mock_cs.stop_instances_targeted.assert_called_once_with("web.*")
-        mock_cs.detach_volumes_targeted.assert_called_once_with("web.*")
-        mock_cs.delete_volumes_targeted.assert_called_once_with("web.*")
-        mock_cs.create_volumes_targeted.assert_called_once_with("daily", "web.*")
-        mock_cs.attach_volumes_targeted.assert_called_once_with("daily", "web.*")
-        out = capsys.readouterr().out
-        assert "Found 1 instances" in out
-        assert "Operation completed" in out
+        mock_cs.stop_instances.assert_called_once()  # whole cluster stop now
+        mock_cs.detach_volumes_targeted.assert_called_once_with(
+            "web-01"
+        )  # name tag value, not regex
+        mock_cs.delete_volumes_targeted.assert_called_once_with("web-01")
+        mock_cs.create_volumes_targeted.assert_called_once_with("daily", "web-01")
+        mock_cs.attach_volumes_targeted.assert_called_once_with("daily", "web-01")
+        assert "completed successfully" in capsys.readouterr().out
 
     @patch("tagmania.snapshot_manager.ClusterSet")
     @patch("builtins.input", return_value="no")
